@@ -1,0 +1,148 @@
+{
+  "project_name": "सुरक्षा डायरी (Suraksha Diary)",
+  "theme_mode": "Light Theme (High-Contrast Institutional)",
+  "typography": {
+    "fonts": {
+      "heading": "'Tiro Devanagari Hindi', serif",
+      "body": "'Mukta', sans-serif",
+      "dashboard_data": "'IBM Plex Sans', sans-serif"
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl font-bold tracking-tight leading-tight",
+      "h2": "text-3xl font-semibold tracking-tight",
+      "h3": "text-2xl font-semibold",
+      "body": "text-lg md:text-base leading-relaxed",
+      "button_primary": "text-xl font-bold tracking-wide",
+      "label": "text-sm font-bold uppercase tracking-wider",
+      "notes": "Ensure Hindi text always has adequate line height (leading-relaxed) to accommodate Devanagari matras (accents above and below the baseline). Never use tight leading on Hindi body text."
+    }
+  },
+  "colors": {
+    "primary": {
+      "base": "#0F172A",
+      "description": "Deep Navy. Used for main structural elements, typography, and conveying institutional trust."
+    },
+    "accent": {
+      "base": "#D97706",
+      "hover": "#B45309",
+      "description": "Warm Amber/Gold. Used for primary actions, floating action buttons (mic), and alerts."
+    },
+    "background": {
+      "page": "#FDFBF7",
+      "card": "#FFFFFF",
+      "description": "Warm off-white paper tone to reflect the 'diary' motif and reduce eye strain compared to harsh clinical white."
+    },
+    "status": {
+      "urgent": {
+        "bg": "#FEE2E2",
+        "text": "#DC2626",
+        "border": "#EF4444"
+      },
+      "resolved": {
+        "bg": "#DCFCE7",
+        "text": "#166534",
+        "border": "#22C55E"
+      },
+      "pending": {
+        "bg": "#FEF3C7",
+        "text": "#B45309",
+        "border": "#F59E0B"
+      },
+      "offline": {
+        "bg": "#F1F5F9",
+        "text": "#475569",
+        "border": "#94A3B8"
+      }
+    },
+    "rules": [
+      "NO cream-and-terracotta, NO neon-on-black, NO purple gradients.",
+      "Never use pure transparent backgrounds over content.",
+      "Avoid glassmorphism entirely. Use Flat Solid surfaces for high contrast."
+    ]
+  },
+  "visual_enhancers": {
+    "borders": "Thick 2px borders (#E2E8F0) on form elements for extremely clear visual boundaries.",
+    "shadows": "Hard drop shadows (e.g., `shadow-[0_4px_0_#0F172A]`) on buttons to make them feel deeply tactile and pressable, like physical kiosk buttons.",
+    "border_radius": "Massive radii on buttons (`rounded-2xl` or `rounded-full`) for a friendly, approachable feel. Standard `rounded-xl` on cards.",
+    "textures": "Subtle grain or noise can be used in the background `#FDFBF7` to subtly mimic a paper diary, but keep it low opacity (<3%) so it doesn't affect legibility."
+  },
+  "component_patterns": {
+    "buttons": "Massive tap targets. Minimum height for primary buttons MUST be 64px (`h-16`). Include tactile active state (translate-y-1 + shadow reduction).",
+    "voice_mic": "Huge central microphone button. When active, must show concentric, radiating pulse animations (Amber color).",
+    "urgent_toggle": "Big switch or segmented control with distinct visual distinction. When 'तुरंत ज़रूरी' is active, pulse a soft red border around the container.",
+    "redundant_coding": "Always pair Status Colors + Icon + Text. Example: [Check Icon] + Green Background + 'सुलझ गई'. Never use just a colored dot.",
+    "forms": "One task per screen (Wizard). Input fields must be massive with 20px text size minimum for readability by elderly users."
+  },
+  "grids": {
+    "mobile_pwa": "Single-column fixed height layout. `h-[100dvh]` with absolute positioned bottom action bar to prevent lost scrolling.",
+    "desktop_dashboard": "High-density CSS Grid (Bento style). Sidebar (`w-64`) + Main Content (`flex-1`). Main content uses `grid-cols-1 md:grid-cols-3 xl:grid-cols-4` with tight `gap-4`."
+  },
+  "layouts": {
+    "sevadar_flow": [
+      {
+        "screen": "Step 1: Identity",
+        "layout": "Large centered text 'आप कौन हैं?'. One massive dropdown/search for Sevadar Name. Huge 'आगे बढ़ें' (Next) button pinned to bottom."
+      },
+      {
+        "screen": "Step 2: Location",
+        "layout": "Visual grid (2 columns) of 'Zones' or 'Gates' with clear icons. A big button for 'GPS लोकेशन लें' (Get GPS). Bottom pinned 'आगे बढ़ें' button."
+      },
+      {
+        "screen": "Step 3: Incident Capture",
+        "layout": "Three huge blocks: (A) Central massive Mic button for Voice (B) 'फोटो खींचें' Camera button (C) Optional text area. Top-right big toggle for 'तुरंत ज़रूरी' (Urgent)."
+      },
+      {
+        "screen": "Step 4: Review & Send",
+        "layout": "Summary card. Massive absolute bottom full-width button 'भेजें' (Send). Offline indicator above button: 'भेजने के लिए तैयार'."
+      },
+      {
+        "screen": "My Reports List",
+        "layout": "Vertical list of cards. Each card has a thick left border matching its status color, prominent status pill (Icon+Text), time, and category icon."
+      }
+    ],
+    "office_dashboard": [
+      {
+        "screen": "Main View",
+        "layout": "Left sidebar (Filters: Status, Zone, Date, Search). Main area: Live feed of incidents (Table or Dense Card list) arranged newest first. Rows visually highlight Urgent reports with a red tint."
+      },
+      {
+        "screen": "Detail Panel",
+        "layout": "Split view or large slide-over. Top: Reporter info & Time. Middle: Media (Photo thumbnail, Waveform Audio Player). Bottom: Status dropdown, Office Notes textbox, 'Export PDF' button."
+      }
+    ]
+  },
+  "motion": {
+    "general": "Minimal and purposeful. Avoid decorative animations. Target audience is easily disoriented by excessive movement.",
+    "feedback": "Use micro-interactions for button presses (tactile click) and clear entrance transitions (e.g., sliding to the next wizard step).",
+    "voice_recording": "Crucial feedback loop. Mic button must visually throb/pulse significantly when recording."
+  },
+  "accessibility": {
+    "contrast": "Exceed WCAG AA. Text over colored backgrounds must have >4.5:1 ratio. No light gray text on white.",
+    "focus": "All interactive elements MUST have a high-contrast focus ring (`focus:ring-4 focus:ring-amber-500 focus:outline-none`).",
+    "tap_targets": "Minimum 56x56px, preferably 64x64px.",
+    "testing": "All interactive elements MUST include `data-testid` attribute using kebab-case role-based names (e.g., `data-testid=\"sevadar-name-select\"`, `data-testid=\"record-voice-button\"`)."
+  },
+  "image_urls": {
+    "vintage_paper_texture": {
+      "url": "https://images.unsplash.com/photo-1603484477859-abe6a73f9366",
+      "description": "Subtle beige parchment paper texture, use as an absolute background layer with 3% opacity (`opacity-3` or `opacity-5`) and `mix-blend-multiply` to give the app a tactile diary feel."
+    }
+  },
+  "instructions_to_main_agent": [
+    "Design for extreme simplicity. The sevadar PWA should feel more like a physical remote control or kiosk than a modern SaaS app.",
+    "Implement the 'Redundant Coding' rule strictly: a status must use an Icon, a Color, and Hindi text combined.",
+    "Use 'Tiro Devanagari Hindi' for all main headings to create a trustworthy, authoritative 'book' feel.",
+    "Build the dashboard using standard Shadcn components but override borders/radii to match the tactical, flat, high-contrast aesthetic.",
+    "Hindi text (`Mukta` font) requires larger line-heights (`leading-relaxed`) compared to English to prevent matras (diacritics) from overlapping. Apply this globally.",
+    "When creating the PWA wizard, ensure the 'Next' / 'Send' buttons are physically pinned to the bottom of the viewport using `fixed bottom-0` or absolute positioning inside a 100vh flex container."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You MUST NOT apply universal transitions (e.g., `transition: all`). Add specific transitions for interactive elements.",
+    "DO NOT center align the app container. No `.App { text-align: center; }`.",
+    "Always use modern, purposeful button styles. In this project, use massive, tactile buttons with hard shadows.",
+    "NEVER use emojis as UI icons. Use lucide-react with strokeWidth 2.5 for thicker, highly visible iconography.",
+    "All interactive elements MUST have `data-testid` attributes.",
+    "Ensure glassmorphism is completely avoided in this specific project. Use solid background colors for all overlays and navs.",
+    "Do not use dark colors as gradients. Use solid colors."
+  ]
+}
