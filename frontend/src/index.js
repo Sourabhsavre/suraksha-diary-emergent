@@ -7,7 +7,7 @@ import App from "@/App";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 60_000,
+      staleTime: 60_000, // 1 minute — see REACT_QUERY_STALE_MS in lib/constants.js
       refetchOnWindowFocus: false,
     },
   },
