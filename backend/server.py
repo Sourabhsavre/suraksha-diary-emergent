@@ -152,7 +152,68 @@ class PushSub(BaseModel):
     keys: dict
     admin_email: Optional[str] = None
 
-# ============ Auth (Emergent Google) ============
+
+class LoginRequest(BaseModel):
+    email: constr(strip_whitespace=True, min_length=3, max_length=200)
+    password: constr(min_length=1, max_length=200)
+
+
+class StaffInvite(BaseModel):
+    email: constr(strip_whitespace=True, min_length=3, max_length=200)
+    name: Optional[constr(max_length=120)] = None
+    password: Optional[constr(min_length=6, max_length=200)] = None  # if provided, staff can login with password
+    can_google_login: bool = True
+
+
+class ChangePassword(BaseModel):
+    new_password: constr(min_length=6, max_length=200)
+
+
+# ============ Auth ============
+
+from passlib.context import CryptContext
+from datetime import timedelta
+import secrets as _secrets
+
+pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+async def _seed_first_admin():
+    email = os.environ.get("ADMIN_EMAIL")
+    password = os.environ.get("ADMIN_PASSWORD")
+    if not email or not password:
+        return
+    existing = await db.admin_users.count_documents({})
+    if existing > 0:
+        return
+    await db.admin_users.insert_one({
+        "email": email.lower(),
+        "name": "Admin",
+        "password_hash": pwd_ctx.hash(password),
+        "can_google_login": True,
+        "role": "admin",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    logging.info(f"Seeded first admin: {email}")
+
+
+@app.on_event("startup")
+async def _on_startup():
+    await _seed_first_admin()
+
+
+async def _make_session(email: str, name: Optional[str], picture: Optional[str] = None) -> dict:
+    token = _secrets.token_urlsafe(32)
+    doc = {
+        "session_token": token,
+        "email": email.lower(),
+        "name": name,
+        "picture": picture,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+    }
+    await db.admin_sessions.insert_one(doc)
+    return doc
+
 
 async def get_current_admin(x_session_token: Optional[str] = Header(None)) -> dict:
     if not x_session_token:
@@ -160,15 +221,29 @@ async def get_current_admin(x_session_token: Optional[str] = Header(None)) -> di
     admin = await db.admin_sessions.find_one({"session_token": x_session_token}, {"_id": 0})
     if not admin:
         raise HTTPException(status_code=401, detail="Invalid session token")
-    # Optional expiry check
     exp = admin.get("expires_at")
     if exp and datetime.fromisoformat(exp) < datetime.now(timezone.utc):
         raise HTTPException(status_code=401, detail="Session expired")
     return admin
 
+
+# --- Email + Password ---
+@api_router.post("/auth/login")
+@limiter.limit("10/minute")
+async def login_password(request: Request, payload: LoginRequest):
+    user = await db.admin_users.find_one({"email": payload.email.lower()}, {"_id": 0})
+    if not user or not user.get("password_hash"):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not pwd_ctx.verify(payload.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    sess = await _make_session(user["email"], user.get("name"))
+    return {"session_token": sess["session_token"], "email": sess["email"], "name": sess["name"], "picture": None}
+
+
+# --- Emergent Google (whitelist-gated) ---
 @api_router.post("/auth/session")
-async def create_session(payload: dict):
-    """Exchange Emergent session_id for a session_token. Frontend calls this after redirect."""
+@limiter.limit("10/minute")
+async def create_session(request: Request, payload: dict):
     session_id = payload.get("session_id")
     if not session_id:
         raise HTTPException(status_code=400, detail="Missing session_id")
@@ -180,24 +255,74 @@ async def create_session(payload: dict):
         if r.status_code != 200:
             raise HTTPException(status_code=401, detail="Failed to validate session")
         data = r.json()
+    email = (data.get("email") or "").lower()
+    if not email:
+        raise HTTPException(status_code=401, detail="No email returned from Google")
+    user = await db.admin_users.find_one({"email": email})
+    if not user or not user.get("can_google_login", True):
+        raise HTTPException(status_code=403, detail="This Google account is not authorized. Please contact your administrator.")
+    # Reuse the token issued by Emergent (already a session token).
     doc = {
         "session_token": data["session_token"],
-        "email": data["email"],
-        "name": data.get("name"),
+        "email": email,
+        "name": data.get("name") or user.get("name"),
         "picture": data.get("picture"),
-        "expires_at": (datetime.now(timezone.utc).replace(microsecond=0).isoformat()),
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
     }
-    # 7 days expiry
-    from datetime import timedelta
-    doc["expires_at"] = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
-    await db.admin_sessions.update_one(
-        {"session_token": doc["session_token"]}, {"$set": doc}, upsert=True
-    )
+    await db.admin_sessions.update_one({"session_token": doc["session_token"]}, {"$set": doc}, upsert=True)
     return {"session_token": doc["session_token"], "email": doc["email"], "name": doc["name"], "picture": doc.get("picture")}
+
 
 @api_router.get("/auth/me")
 async def whoami(admin: dict = Depends(get_current_admin)):
     return {"email": admin["email"], "name": admin.get("name"), "picture": admin.get("picture")}
+
+
+# --- Staff management (admin-only) ---
+@api_router.get("/auth/staff")
+async def list_staff(admin: dict = Depends(get_current_admin)):
+    users = await db.admin_users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(200)
+    return users
+
+
+@api_router.post("/auth/staff")
+async def add_staff(payload: StaffInvite, admin: dict = Depends(get_current_admin)):
+    email = payload.email.lower()
+    existing = await db.admin_users.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=409, detail="Staff already exists")
+    doc = {
+        "email": email,
+        "name": payload.name,
+        "password_hash": pwd_ctx.hash(payload.password) if payload.password else None,
+        "can_google_login": payload.can_google_login,
+        "role": "staff",
+        "added_by": admin["email"],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.admin_users.insert_one(doc)
+    return {"email": email, "name": payload.name, "has_password": bool(payload.password), "can_google_login": payload.can_google_login}
+
+
+@api_router.delete("/auth/staff/{email}")
+async def remove_staff(email: str, admin: dict = Depends(get_current_admin)):
+    email = email.lower()
+    if email == admin["email"]:
+        raise HTTPException(status_code=400, detail="You cannot remove yourself")
+    r = await db.admin_users.delete_one({"email": email})
+    if r.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Staff not found")
+    await db.admin_sessions.delete_many({"email": email})
+    return {"ok": True}
+
+
+@api_router.post("/auth/change-password")
+async def change_password(payload: ChangePassword, admin: dict = Depends(get_current_admin)):
+    await db.admin_users.update_one(
+        {"email": admin["email"]},
+        {"$set": {"password_hash": pwd_ctx.hash(payload.new_password)}},
+    )
+    return {"ok": True}
 
 @api_router.post("/auth/logout")
 async def logout(admin: dict = Depends(get_current_admin)):

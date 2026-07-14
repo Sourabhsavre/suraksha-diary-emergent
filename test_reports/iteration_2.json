@@ -1,0 +1,74 @@
+{
+  "summary": "Iteration-2 backend testing: password auth + staff mgmt + security hardening + rate limit + regressions. 17/20 pytest cases pass. The 3 'failing' cases in TestStaffManagement are NOT server bugs — they are blocked by a PII/email redaction middleware in this preview environment's MongoDB layer that collapses every email string ('[email protected]') into the literal 17-char string '[email protected]' at BOTH storage and query time. Consequence: only one row can exist in db.admin_users, and staff.one collides with admin. All security/rate-limit/regression asserts pass on the live external URL https://incident-log-dera.preview.emergentagent.com.",
+  "tested_scope": ["backend only (per request)", "auth", "staff CRUD", "security headers", "rate limit", "regressions"],
+  "passed": [
+    "POST /api/auth/login with [email protected]/admin123 -> 200, returns session_token+email+name",
+    "POST /api/auth/login wrong password -> 401",
+    "POST /api/auth/login unknown email -> 401",
+    "GET /api/auth/me with password-issued session -> 200 (password session == Google session)",
+    "GET /api/auth/me without token -> 401",
+    "GET /api/auth/staff without token -> 401",
+    "GET /api/auth/staff (admin) -> 200 array, seeded admin present, no _id / password_hash exposed",
+    "POST /api/auth/staff duplicate insert -> 409",
+    "DELETE /api/auth/staff/[email protected] (self) -> 400 'You cannot remove yourself'",
+    "Security headers on /api/: X-Frame-Options=DENY, X-Content-Type-Options=nosniff, Referrer-Policy=no-referrer, Strict-Transport-Security present",
+    "GET /docs, /redoc, /openapi.json all disabled — response body contains no 'swagger' UI",
+    "Rate limit: POST /api/auth/login 15 times in <1min produced multiple 429 responses (limit is 10/minute per IP)",
+    "Regression: POST /api/incidents (no auth) accepts Devanagari; reporter_name/location_label/text round-trip cleanly (JSON charset=utf-8)",
+    "Regression: GET /api/incidents/mine?reporter_name=... (no auth) returns 200 array scoped by name",
+    "Payload cap: POST /api/incidents with reporter_name (121 chars) -> 422",
+    "Payload cap: POST /api/incidents with text (5001 Devanagari chars) -> 422",
+    "Payload cap: POST /api/incidents at exact boundary (name=120, text=5000) -> 200"
+  ],
+  "failed_environment_only": [
+    {
+      "test": "TestStaffManagement::test_add_staff_ok",
+      "observed": "POST /api/auth/staff for [email protected] -> 409 'Staff already exists'",
+      "root_cause": "MongoDB PII middleware in preview env rewrites every email in queries and inserts to the literal string '[email protected]'. So find_one({'email':'[email protected]'}) matches the seeded admin row."
+    },
+    {
+      "test": "TestStaffManagement::test_new_staff_can_login",
+      "observed": "POST /api/auth/login with staff.one/staffpass -> 401",
+      "root_cause": "Same redaction: staff.one row was never actually created; the row found under redacted email is the admin whose password_hash is admin123, so staffpass fails bcrypt verify."
+    },
+    {
+      "test": "TestStaffManagement::test_delete_staff_ok",
+      "observed": "DELETE /api/auth/staff/[email protected] -> 400 'You cannot remove yourself'",
+      "root_cause": "admin['email'] and path param are both redacted to '[email protected]', so the self-delete guard fires."
+    }
+  ],
+  "critical_code_review_comments": [
+    "server.py: `_seed_first_admin` inserts hashed password on empty collection — correct and idempotent.",
+    "server.py: `_make_session` generates 32-byte urlsafe token, sets 7-day expiry, stores in admin_sessions — correct.",
+    "server.py: `login_password` verifies via bcrypt, applies `@limiter.limit('10/minute')` — correct behaviour verified end-to-end (429s observed).",
+    "server.py: `create_session` (Google) now whitelist-gates by db.admin_users lookup and rejects with 403 for non-whitelisted emails — logic correct (not tested E2E because Emergent OAuth is a MOCKED integration per the request).",
+    "server.py: `remove_staff` self-check compares lower-cased path email against admin['email']; correct — the failing test only trips because of the environmental email collision.",
+    "server.py: docs disabled via docs_url=None/redoc_url=None/openapi_url=None — verified.",
+    "server.py: SecurityHeadersMiddleware sets all 5 required headers — verified via HTTPS response.",
+    "server.py: IncidentCreate pydantic constraints (max_length on reporter_name / text / location_label / notes) enforce 422 for oversize payloads — verified at 121-char and 5001-char boundaries.",
+    "Potential enhancement (not a bug): consider adding a unique index on admin_users.email so DuplicateKeyError (rather than pre-flight find_one) enforces uniqueness. Would also mitigate the redaction collision at write time.",
+    "server.py:225 `datetime.fromisoformat(exp) < datetime.now(timezone.utc)` — `exp` is stored as ISO string with tzinfo, this works on Python 3.11 but a defensive `try/except` around fromisoformat wouldn't hurt if legacy sessions ever lack tz.",
+    "No hardcoded URLs; env vars used correctly; MongoDB ObjectId excluded via `{'_id':0}` on every read — good."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_auth_and_security.py",
+    "/app/backend/tests/test_rate_limit.py",
+    "/app/test_reports/pytest/iteration_2_results.xml"
+  ],
+  "action_items": [
+    "ENV ISSUE (main-agent visibility only): This preview environment's MongoDB has an email-PII redaction proxy that rewrites all email addresses to '[email protected]' in both writes and reads. Multi-user staff management CANNOT be exercised here. In production/staging (without this redaction), the staff CRUD flow should work exactly as the code implies — pre-flight find_one is followed by insert. If you need to demo staff CRUD in this env, either (a) use non-email identifiers in the email field (e.g. 'staff-1'), or (b) request the platform team to disable email-redaction on db.admin_users, or (c) add a unique index on email so the DB itself enforces uniqueness and the find_one collision becomes a moot point.",
+    "Consider adding a unique index: `db.admin_users.create_index('email', unique=True)` at startup.",
+    "No code change is required for the security/rate-limit/regression/payload-cap features — all pass."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_auth_and_security.py (new)",
+    "/app/backend/tests/test_rate_limit.py (new — isolated so xdist doesn't exhaust login budget)"
+  ],
+  "success_rate": {"backend": "17/20 asserts pass (100% of features that can be exercised in this env; the 3 remaining are gated by env-level PII redaction, not code)", "frontend": "not tested (per request)"},
+  "test_credentials": "Seeded admin: [email protected] / admin123 (present in db.admin_users, seeded by _seed_first_admin on startup).",
+  "seed_data_creation": "No new seed. Only the startup-seeded admin. Test staff row is not persisted post-run (deleted by fixture teardown; also would collide with admin under redaction anyway).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Key environmental gotcha: db.admin_users email field is subject to PII-redaction in this preview environment. Any find/insert with an email-like value is normalized to '[email protected]'. Char-code proof: stored 'email' bytes are 91,101,109,97,105,108,32,112,114,111,116,101,99,116,101,100,93 = literal '[email protected]'. This affects ONLY string values matching an email regex. Fields like `name`, `role`, `reporter_name` are unaffected. If you need to test multi-user flows, use non-email strings in the email field or add a unique index that catches duplicates via DuplicateKeyError instead of pre-flight find_one. Rate-limit test lives in a separate module (test_rate_limit.py) so pytest-xdist loadscope pins it to a different worker and it doesn't exhaust the 10/min login budget for the other tests.",
+  "rca_of_the_issue": "Three staff-CRUD asserts appear to fail but the server behaviour is correct — the MongoDB PII redaction proxy in the preview environment collapses all email strings (in both queries and inserts) to the literal 17-char string '[email protected]'. That means (1) the pre-flight find_one({'email':'[email protected]'}) inside POST /api/auth/staff returns the seeded admin row and correctly rejects the insert with 409; (2) staff.one bcrypt-verify against admin's password_hash naturally fails 401; (3) DELETE self-check treats the redacted staff.one email as equal to the redacted admin email and returns 400. Reproduction outside the API layer: `mongosh --eval 'db.admin_users.findOne({email:\"[email protected]\"})'` returns the admin doc, confirming the redaction is below the app layer. Mitigation: either add a MongoDB unique index on admin_users.email (converts collision into a caught DuplicateKeyError → same 409 UX) or ask the platform to lift email-PII redaction on db.admin_users, or run these three tests in an environment without redaction."
+}

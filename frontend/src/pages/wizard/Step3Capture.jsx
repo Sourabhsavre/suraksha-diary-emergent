@@ -6,10 +6,12 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import StepShell from './StepShell';
 import { blobToDataUrl, compressImage } from '@/lib/media';
+import { useI18n } from '@/lib/i18n';
 
 export default function Step3Capture({
   urgent, setUrgent, text, setText, photo, setPhoto, audio, setAudio, onBack, onNext,
 }) {
+  const { t } = useI18n();
   const [recording, setRecording] = useState(false);
   const recRef = useRef(null);
   const chunksRef = useRef([]);
@@ -25,14 +27,14 @@ export default function Step3Capture({
         const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' });
         const dataUrl = await blobToDataUrl(blob);
         setAudio({ dataUrl, mime: mr.mimeType || 'audio/webm' });
-        stream.getTracks().forEach((t) => t.stop());
+        stream.getTracks().forEach((tr) => tr.stop());
       };
       mr.start();
       recRef.current = mr;
       setRecording(true);
     } catch (err) {
       console.error('Microphone unavailable:', err);
-      toast.error('माइक्रोफोन उपलब्ध नहीं है');
+      toast.error(t('mic_unavailable'));
     }
   };
 
@@ -46,7 +48,7 @@ export default function Step3Capture({
       setPhoto(dataUrl);
     } catch (err) {
       console.error('Photo compression failed:', err);
-      toast.error('फोटो प्रोसेस नहीं हो सकी');
+      toast.error(t('photo_process_failed'));
     }
   };
 
@@ -54,14 +56,14 @@ export default function Step3Capture({
 
   return (
     <StepShell
-      n={3} total={4} title="क्या हुआ?"
+      n={3} total={4} title={t('what_happened')}
       bottom={
         <div className="grid grid-cols-2 gap-3">
           <Button data-testid="step3-back" variant="outline" onClick={onBack}
-            className="h-16 text-lg font-bold rounded-2xl border-2 border-[#0F172A]">पीछे</Button>
+            className="h-16 text-lg font-bold rounded-2xl border-2 border-[#0F172A]">{t('back')}</Button>
           <Button data-testid="step3-next" onClick={onNext} disabled={nothingCaptured}
             className="h-16 text-xl font-bold rounded-2xl bg-[#D97706] text-white btn-tactile-amber disabled:opacity-50 disabled:shadow-none">
-            आगे बढ़ें<ChevronRight className="w-6 h-6 ml-2" strokeWidth={2.5} />
+            {t('next')}<ChevronRight className="w-6 h-6 ml-2" strokeWidth={2.5} />
           </Button>
         </div>
       }
@@ -70,8 +72,8 @@ export default function Step3Capture({
         <div className="flex items-center gap-3">
           <AlertTriangle className={`w-8 h-8 ${urgent ? 'text-red-700' : 'text-slate-500'}`} strokeWidth={2.5} />
           <div>
-            <div className="font-heading text-xl text-[#0F172A]">तुरंत ज़रूरी</div>
-            <div className="text-sm text-slate-600">आग, मेडिकल, सुरक्षा खतरा</div>
+            <div className="font-heading text-xl text-[#0F172A]">{t('urgent')}</div>
+            <div className="text-sm text-slate-600">{t('urgent_sub')}</div>
           </div>
         </div>
         <Switch data-testid="urgent-toggle" checked={urgent} onCheckedChange={setUrgent} className="scale-150" />
@@ -89,7 +91,7 @@ export default function Step3Capture({
           </button>
         </div>
         <div className="mt-4 font-heading text-xl text-[#0F172A]">
-          {recording ? 'रोकने के लिए दबाएँ' : 'बोलकर बताएँ (हिंदी में)'}
+          {recording ? t('stop_recording') : t('tap_to_speak')}
         </div>
         {audio && (
           <div className="mt-4 w-full max-w-md p-3 bg-white rounded-xl border-2 border-emerald-400 flex items-center justify-between" data-testid="audio-preview">
@@ -103,7 +105,7 @@ export default function Step3Capture({
 
       <div className="grid grid-cols-2 gap-3 mb-4">
         <label data-testid="photo-btn" className="h-20 rounded-2xl bg-white border-2 border-[#0F172A] flex items-center justify-center gap-3 font-bold text-lg cursor-pointer">
-          <Camera className="w-7 h-7" strokeWidth={2.5} /> फोटो खींचें
+          <Camera className="w-7 h-7" strokeWidth={2.5} /> {t('take_photo')}
           <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onPhoto} data-testid="photo-input" />
         </label>
         <button
@@ -111,7 +113,7 @@ export default function Step3Capture({
           onClick={() => document.getElementById('sd-text').focus()}
           className="h-20 rounded-2xl bg-white border-2 border-[#0F172A] flex items-center justify-center gap-3 font-bold text-lg"
         >
-          ⌨ लिखकर बताएँ
+          {t('write_text')}
         </button>
       </div>
       {photo && (
@@ -125,7 +127,7 @@ export default function Step3Capture({
       <Textarea
         id="sd-text" data-testid="text-input"
         value={text} onChange={(e) => setText(e.target.value)}
-        placeholder="ऐच्छिक: संक्षेप में लिखें"
+        placeholder={t('text_placeholder')}
         className="min-h-24 text-lg p-4 border-2 border-[#0F172A]/40 rounded-2xl bg-white"
       />
     </StepShell>

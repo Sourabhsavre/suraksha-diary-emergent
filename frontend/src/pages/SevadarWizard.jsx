@@ -9,6 +9,7 @@ import Step3Capture from '@/pages/wizard/Step3Capture';
 import Step4Review from '@/pages/wizard/Step4Review';
 import Step5Success from '@/pages/wizard/Step5Success';
 import useOfflineQueue from '@/pages/wizard/useOfflineQueue';
+import { useI18n } from '@/lib/i18n';
 
 function buildPayload({ name, zone, gps, text, urgent, photo, audio }) {
   return {
@@ -35,6 +36,7 @@ function playChime() {
 
 export default function SevadarWizard() {
   const navigate = useNavigate();
+  const { t } = useI18n();
 
   const [step, setStep] = useState(1);
   const [name, setName] = useState(getSevadarName());
@@ -44,21 +46,20 @@ export default function SevadarWizard() {
   const [urgent, setUrgent] = useState(false);
   const [text, setText] = useState('');
   const [photo, setPhoto] = useState(null);
-  const [audio, setAudio] = useState(null); // { dataUrl, mime }
+  const [audio, setAudio] = useState(null);
   const [sending, setSending] = useState(false);
 
   const handleFlush = useCallback(({ sent }) => {
-    if (sent > 0) toast.success(`${sent} रिपोर्ट भेज दी गईं ✓`);
-  }, []);
+    if (sent > 0) toast.success(`${sent} ${t('x_sent')}`);
+  }, [t]);
   const { online, queued, setQueued, refreshQueued } = useOfflineQueue(handleFlush);
 
   const next = () => setStep((s) => Math.min(5, s + 1));
   const back = () => setStep((s) => Math.max(1, s - 1));
-
   const resetMedia = () => { setPhoto(null); setAudio(null); setText(''); setUrgent(false); };
 
   const submit = async () => {
-    if (!name.trim()) { setStep(1); toast.error('कृपया अपना नाम लिखें'); return; }
+    if (!name.trim()) { setStep(1); toast.error(t('please_write_name')); return; }
     setSending(true);
     setSevadarName(name.trim());
     const payload = buildPayload({ name, zone, gps, text, urgent, photo, audio });
@@ -74,30 +75,17 @@ export default function SevadarWizard() {
       setQueued((q) => q + 1);
       refreshQueued();
       setStep(5);
-      toast.info('नेटवर्क नहीं मिला — रिपोर्ट सुरक्षित है, कनेक्शन आते ही भेजी जाएगी');
+      toast.info(t('network_missing'));
     } finally {
       setSending(false);
     }
   };
 
   if (step === 5) {
-    return (
-      <Step5Success
-        queued={queued}
-        onNew={() => setStep(1)}
-        onMyReports={() => navigate('/my-reports')}
-      />
-    );
+    return <Step5Success queued={queued} onNew={() => setStep(1)} onMyReports={() => navigate('/my-reports')} />;
   }
   if (step === 1) {
-    return (
-      <Step1Identity
-        name={name}
-        setName={setName}
-        onNext={next}
-        onAdmin={() => navigate('/admin/login')}
-      />
-    );
+    return <Step1Identity name={name} setName={setName} onNext={next} onAdmin={() => navigate('/admin/login')} />;
   }
   if (step === 2) {
     return (

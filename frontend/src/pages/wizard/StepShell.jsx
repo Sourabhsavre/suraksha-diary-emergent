@@ -1,14 +1,20 @@
 import { BookOpen } from 'lucide-react';
+import LanguageToggle from '@/components/LanguageToggle';
+import { useI18n } from '@/lib/i18n';
 
 export default function StepShell({ n, total, title, children, bottom }) {
+  const { t } = useI18n();
   return (
-    <div className="min-h-[100dvh] flex flex-col relative z-10">
+    <div className="min-h-[100dvh] flex flex-col relative z-10 paper-texture">
       <header className="px-6 pt-5 pb-2 flex items-center justify-between">
         <div className="flex items-center gap-2 font-heading text-[#0F172A]">
           <BookOpen className="w-6 h-6" />
-          <span className="text-xl">सुरक्षा डायरी</span>
+          <span className="text-xl">{t('app_name')}</span>
         </div>
-        <div className="text-sm font-bold text-slate-500 tracking-wider">{n}/{total}</div>
+        <div className="flex items-center gap-2">
+          <LanguageToggle />
+          <div className="text-sm font-bold text-slate-500 tracking-wider">{n}/{total}</div>
+        </div>
       </header>
       <div className="flex-1 px-6 pb-32">
         <h1 className="font-heading text-3xl md:text-4xl leading-snug text-[#0F172A] mt-4 mb-6">{title}</h1>
