@@ -199,6 +199,12 @@ async def _seed_first_admin():
 
 @app.on_event("startup")
 async def _on_startup():
+    # Unique index on admin_users.email — DB-level guarantee that no two admins
+    # can share the same email, even if the pre-flight find_one is somehow skipped.
+    try:
+        await db.admin_users.create_index("email", unique=True)
+    except Exception as e:
+        logging.warning(f"admin_users unique index setup failed: {e}")
     await _seed_first_admin()
 
 
@@ -300,7 +306,13 @@ async def add_staff(payload: StaffInvite, admin: dict = Depends(get_current_admi
         "added_by": admin["email"],
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    await db.admin_users.insert_one(doc)
+    try:
+        await db.admin_users.insert_one(doc)
+    except Exception as e:
+        # Duplicate-key from unique index → collapse to 409.
+        if "duplicate" in str(e).lower() or "E11000" in str(e):
+            raise HTTPException(status_code=409, detail="Staff already exists")
+        raise
     return {"email": email, "name": payload.name, "has_password": bool(payload.password), "can_google_login": payload.can_google_login}
 
 
