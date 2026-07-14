@@ -1,7 +1,8 @@
-from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form, Depends, Header, Query, BackgroundTasks
+from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form, Depends, Header, Query, BackgroundTasks, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import io
@@ -12,7 +13,7 @@ import logging
 import asyncio
 import tempfile
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, constr
 from typing import List, Optional, Literal
 import uuid
 from datetime import datetime, timezone
@@ -20,6 +21,10 @@ from datetime import datetime, timezone
 import httpx
 from pywebpush import webpush, WebPushException
 from emergentintegrations.llm.openai import OpenAISpeechToText
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -60,7 +65,29 @@ try:
 except Exception:
     HINDI_FONT = 'Helvetica'
 
-app = FastAPI()
+app = FastAPI(
+    docs_url=None,          # Disable public Swagger UI
+    redoc_url=None,         # Disable public ReDoc
+    openapi_url=None,       # Disable public OpenAPI schema
+)
+
+# --- Rate limiter (per-IP) ---
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Security headers on every response.
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        response.headers.setdefault("Permissions-Policy", "geolocation=(self), microphone=(self), camera=(self)")
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Force UTF-8 charset on JSON and HTML responses (defense-in-depth against mojibake).
 @app.middleware("http")
@@ -77,29 +104,40 @@ api_router = APIRouter(prefix="/api")
 
 # ============ Models ============
 
+# Size caps prevent oversized DB writes and DoS via base64 payloads.
+MAX_TEXT_LEN = 5000
+MAX_LOCATION_LEN = 200
+MAX_NOTES_LEN = 5000
+MAX_NAME_LEN = 120
+MAX_MEDIA_BYTES = 6 * 1024 * 1024        # ~6 MB per photo/audio (raw)
+MAX_MEDIA_BASE64_LEN = int(MAX_MEDIA_BYTES * 1.4) + 64
+
+
 class IncidentCreate(BaseModel):
-    reporter_name: str
-    location_label: Optional[str] = None
+    reporter_name: constr(strip_whitespace=True, min_length=1, max_length=MAX_NAME_LEN)
+    device_id: constr(strip_whitespace=True, min_length=4, max_length=64) = "anonymous"
+    location_label: Optional[constr(max_length=MAX_LOCATION_LEN)] = None
     gps_lat: Optional[float] = None
     gps_lng: Optional[float] = None
-    text: Optional[str] = None
+    text: Optional[constr(max_length=MAX_TEXT_LEN)] = None
     is_urgent: bool = False
-    photo_base64: Optional[str] = None  # data URL or raw base64
-    audio_base64: Optional[str] = None  # base64 encoded audio
-    audio_mime: Optional[str] = None    # e.g. audio/webm
+    photo_base64: Optional[constr(max_length=MAX_MEDIA_BASE64_LEN)] = None
+    audio_base64: Optional[constr(max_length=MAX_MEDIA_BASE64_LEN)] = None
+    audio_mime: Optional[constr(max_length=64)] = None
 
 class Incident(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     reporter_name: str
+    device_id: str = "anonymous"
     location_label: Optional[str] = None
     gps_lat: Optional[float] = None
     gps_lng: Optional[float] = None
     text: Optional[str] = None
     transcript: Optional[str] = None
     is_urgent: bool = False
-    photo_url: Optional[str] = None  # data URL stored inline (compressed by client)
-    audio_url: Optional[str] = None  # data URL stored inline
+    photo_url: Optional[str] = None
+    audio_url: Optional[str] = None
     status: Literal['new', 'in_progress', 'resolved'] = 'new'
     office_notes: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -107,7 +145,7 @@ class Incident(BaseModel):
 
 class IncidentUpdate(BaseModel):
     status: Optional[Literal['new', 'in_progress', 'resolved']] = None
-    office_notes: Optional[str] = None
+    office_notes: Optional[constr(max_length=MAX_NOTES_LEN)] = None
 
 class PushSub(BaseModel):
     endpoint: str
@@ -272,13 +310,15 @@ def _audio_to_data_url(ab: Optional[str], mime: Optional[str]) -> Optional[str]:
 
 
 @api_router.post("/incidents", response_model=Incident)
-async def create_incident(payload: IncidentCreate, background: BackgroundTasks):
+@limiter.limit("30/minute")
+async def create_incident(request: Request, payload: IncidentCreate, background: BackgroundTasks):
     transcript = None
     if payload.audio_base64:
         transcript = await transcribe_audio_b64(payload.audio_base64, payload.audio_mime or "audio/webm")
 
     inc = Incident(
         reporter_name=payload.reporter_name.strip() or "अज्ञात",
+        device_id=payload.device_id,
         location_label=payload.location_label,
         gps_lat=payload.gps_lat,
         gps_lng=payload.gps_lng,
@@ -332,10 +372,18 @@ async def list_incidents(
     return docs
 
 @api_router.get("/incidents/mine", response_model=List[Incident])
-async def my_incidents(reporter_name: str = Query(...), limit: int = 50):
-    docs = await db.incidents.find(
-        {"reporter_name": reporter_name}, {"_id": 0}
-    ).sort("created_at", -1).to_list(limit)
+async def my_incidents(
+    reporter_name: str = Query(..., max_length=MAX_NAME_LEN),
+    device_id: Optional[str] = Query(None, max_length=64),
+    limit: int = 50,
+):
+    """Sevadar's own reports. If device_id is provided, results are scoped to that
+    device (prevents enumerating another sevadar's reports by guessing a name).
+    Kept name-only for backwards-compat until the frontend starts sending device_id."""
+    q = {"reporter_name": reporter_name}
+    if device_id:
+        q["device_id"] = device_id
+    docs = await db.incidents.find(q, {"_id": 0}).sort("created_at", -1).to_list(min(limit, 200))
     return docs
 
 @api_router.get("/incidents/{incident_id}", response_model=Incident)
