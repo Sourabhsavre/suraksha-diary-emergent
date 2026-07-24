@@ -58,6 +58,16 @@ export default function StaffPanel({ open, onClose }) {
     }
   };
 
+  const updateRole = async (email, newRole) => {
+    try {
+      await api.patch(`/auth/staff/${encodeURIComponent(email)}/role`, { role: newRole });
+      toast.success(t('role_updated'));
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.detail || t('generic_error'));
+    }
+  };
+
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-end md:items-center justify-center p-0 md:p-6" onClick={onClose}>
@@ -104,8 +114,17 @@ export default function StaffPanel({ open, onClose }) {
                 <div className="min-w-0">
                   <div className="font-bold text-[#0F172A] truncate">{s.name || s.email}</div>
                   <div className="text-sm text-slate-500 truncate">{s.email}</div>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 border border-slate-300">{s.role || 'staff'}</span>
+                  <div className="flex flex-wrap items-center gap-2 mt-1">
+                    <select
+                      data-testid={`staff-role-select-${s.email}`}
+                      value={s.role || 'staff'}
+                      onChange={(e) => updateRole(s.email, e.target.value)}
+                      className="text-xs px-2 py-1 rounded border border-slate-300 bg-white font-semibold text-[#0F172A]"
+                    >
+                      <option value="staff">Staff</option>
+                      <option value="operator">Operator</option>
+                      <option value="admin">Admin</option>
+                    </select>
                     {s.password_hash === undefined && s.can_google_login && (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 border border-blue-300 text-blue-700">Google</span>
                     )}

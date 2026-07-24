@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 
 import httpx
 from pywebpush import webpush, WebPushException
-from emergentintegrations.llm.openai import OpenAISpeechToText
+from openai import AsyncOpenAI
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -40,9 +40,9 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# --- Emergent LLM (Whisper) ---
-EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
-stt = OpenAISpeechToText(api_key=EMERGENT_LLM_KEY) if EMERGENT_LLM_KEY else None
+# --- OpenAI (Whisper) ---
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+stt_client = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 # --- Web Push VAPID ---
 VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
@@ -158,6 +158,16 @@ class LoginRequest(BaseModel):
     password: constr(min_length=1, max_length=200)
 
 
+class RegisterRequest(BaseModel):
+    name: constr(strip_whitespace=True, min_length=1, max_length=MAX_NAME_LEN)
+    email: constr(strip_whitespace=True, min_length=3, max_length=200)
+    password: constr(min_length=6, max_length=200)
+
+
+class RoleUpdate(BaseModel):
+    role: Literal['staff', 'operator', 'admin']
+
+
 class StaffInvite(BaseModel):
     email: constr(strip_whitespace=True, min_length=3, max_length=200)
     name: Optional[constr(max_length=120)] = None
@@ -233,6 +243,47 @@ async def get_current_admin(x_session_token: Optional[str] = Header(None)) -> di
     return admin
 
 
+# --- Registration ---
+@api_router.post("/auth/register")
+@limiter.limit("5/minute")
+async def register_user(request: Request, payload: RegisterRequest):
+    email = payload.email.lower().strip()
+    
+    if "@" not in email or "." not in email.split("@")[-1] or len(email.split("@")[0]) < 1:
+        raise HTTPException(status_code=400, detail="Invalid email format")
+
+    if len(payload.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    existing = await db.admin_users.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=409, detail="Email already registered")
+
+    doc = {
+        "email": email,
+        "name": payload.name.strip(),
+        "password_hash": pwd_ctx.hash(payload.password),
+        "can_google_login": True,
+        "role": "staff",  # Default to staff role (not admin)
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        await db.admin_users.insert_one(doc)
+    except Exception as e:
+        if "duplicate" in str(e).lower() or "E11000" in str(e):
+            raise HTTPException(status_code=409, detail="Email already registered")
+        raise
+
+    sess = await _make_session(email, payload.name.strip())
+    return {
+        "session_token": sess["session_token"],
+        "email": sess["email"],
+        "name": sess["name"],
+        "role": doc["role"],
+        "picture": None
+    }
+
+
 # --- Email + Password ---
 @api_router.post("/auth/login")
 @limiter.limit("10/minute")
@@ -243,7 +294,13 @@ async def login_password(request: Request, payload: LoginRequest):
     if not pwd_ctx.verify(payload.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     sess = await _make_session(user["email"], user.get("name"))
-    return {"session_token": sess["session_token"], "email": sess["email"], "name": sess["name"], "picture": None}
+    return {
+        "session_token": sess["session_token"],
+        "email": sess["email"],
+        "name": sess["name"],
+        "role": user.get("role", "staff"),
+        "picture": None
+    }
 
 
 # --- Emergent Google (whitelist-gated) ---
@@ -281,7 +338,9 @@ async def create_session(request: Request, payload: dict):
 
 @api_router.get("/auth/me")
 async def whoami(admin: dict = Depends(get_current_admin)):
-    return {"email": admin["email"], "name": admin.get("name"), "picture": admin.get("picture")}
+    user = await db.admin_users.find_one({"email": admin["email"]}, {"_id": 0, "password_hash": 0})
+    role = user.get("role", "staff") if user else "staff"
+    return {"email": admin["email"], "name": admin.get("name"), "role": role, "picture": admin.get("picture")}
 
 
 # --- Staff management (admin-only) ---
@@ -289,6 +348,22 @@ async def whoami(admin: dict = Depends(get_current_admin)):
 async def list_staff(admin: dict = Depends(get_current_admin)):
     users = await db.admin_users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(200)
     return users
+
+
+@api_router.patch("/auth/staff/{email}/role")
+async def update_staff_role(email: str, payload: RoleUpdate, admin: dict = Depends(get_current_admin)):
+    email = email.lower()
+    admin_user = await db.admin_users.find_one({"email": admin["email"]})
+    if not admin_user or admin_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can manage roles")
+
+    if email == admin["email"] and payload.role != "admin":
+        raise HTTPException(status_code=400, detail="Cannot demote yourself")
+
+    r = await db.admin_users.update_one({"email": email}, {"$set": {"role": payload.role}})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Staff user not found")
+    return {"ok": True, "email": email, "role": payload.role}
 
 
 @api_router.post("/auth/staff")
@@ -402,13 +477,17 @@ def _decode_audio_b64(audio_b64: str) -> bytes:
 
 
 async def _whisper_transcribe_file(path: str) -> Optional[str]:
+    if not stt_client:
+        return None
     with open(path, "rb") as fp:
-        resp = await stt.transcribe(file=fp, model="whisper-1", response_format="json", language="hi")
+        resp = await stt_client.audio.transcriptions.create(
+            file=fp, model="whisper-1", response_format="json", language="hi"
+        )
     return getattr(resp, "text", None)
 
 
 async def transcribe_audio_b64(audio_b64: str, mime: str) -> Optional[str]:
-    if not stt:
+    if not stt_client:
         return None
     try:
         raw = _decode_audio_b64(audio_b64)

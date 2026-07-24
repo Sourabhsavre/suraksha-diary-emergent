@@ -12,6 +12,14 @@ const getDb = () => openDB(DB_NAME, 1, {
   },
 });
 
+export async function initIndexedDB() {
+  return getDb();
+}
+
+if (typeof window !== 'undefined') {
+  window.initIndexedDB = initIndexedDB;
+}
+
 export async function queueReport(payload) {
   const db = await getDb();
   await db.add(STORE, { payload, queued_at: new Date().toISOString() });
