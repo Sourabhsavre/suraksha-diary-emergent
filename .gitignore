@@ -3,3 +3,6 @@ backend/.env
 frontend/.env
 .env
 *.log
+__pycache__/
+*.py[cod]
+.pytest_cache/
