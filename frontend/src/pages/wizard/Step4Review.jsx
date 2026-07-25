@@ -17,7 +17,7 @@ export default function Step4Review({ name, zone, gps, urgent, audio, photo, tex
 
   return (
     <StepShell
-      n={4} total={4} title={t('review_title')}
+      n={4} total={5} title={t('review_title')}
       bottom={
         <div className="space-y-2">
           {!online && (

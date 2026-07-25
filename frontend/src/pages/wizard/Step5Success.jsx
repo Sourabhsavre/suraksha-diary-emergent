@@ -7,7 +7,7 @@ export default function Step5Success({ queued, onNew, onMyReports }) {
   const { t } = useI18n();
   return (
     <StepShell
-      n={4} total={4} title={t('sent_title')}
+      n={5} total={5} title={t('sent_title')}
       bottom={
         <div className="grid grid-cols-2 gap-3">
           <Button data-testid="new-report-btn" onClick={onNew}

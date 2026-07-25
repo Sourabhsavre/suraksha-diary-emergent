@@ -56,7 +56,7 @@ export default function Step3Capture({
 
   return (
     <StepShell
-      n={3} total={4} title={t('what_happened')}
+      n={3} total={5} title={t('what_happened')}
       bottom={
         <div className="grid grid-cols-2 gap-3">
           <Button data-testid="step3-back" variant="outline" onClick={onBack}

@@ -6,4 +6,5 @@ export const PHOTO_JPEG_QUALITY = 0.6;
 export const GPS_TIMEOUT_MS = 10_000;
 export const SESSION_STORAGE_KEY = 'sd_session_token';
 export const SEVADAR_NAME_KEY = 'sd_sevadar_name';
+export const SEVADAR_DEVICE_KEY = 'sd_sevadar_device_id';
 export const ADMIN_PROFILE_KEY = 'sd_admin';

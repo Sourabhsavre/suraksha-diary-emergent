@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, BookOpen, CheckCircle2, Clock, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import LanguageToggle from '@/components/LanguageToggle';
-import { api, getSevadarName } from '@/lib/api';
+import { api, getOrCreateSevadarDeviceId, getSevadarName } from '@/lib/api';
 import { useI18n } from '@/lib/i18n';
 
 function summarize(it, t) {
@@ -29,7 +29,7 @@ export default function MyReports() {
 
   useEffect(() => {
     if (!name) { nav('/report'); return; }
-    api.get('/incidents/mine', { params: { reporter_name: name } })
+    api.get('/incidents/mine', { params: { reporter_name: name, device_id: getOrCreateSevadarDeviceId() } })
       .then((r) => setItems(r.data))
       .catch((err) => console.error('Failed to load my reports:', err))
       .finally(() => setLoading(false));

@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { api, getSevadarName, setSevadarName } from '@/lib/api';
+import { api, getOrCreateSevadarDeviceId, getSevadarName, setSevadarName } from '@/lib/api';
 import { queueReport } from '@/lib/offlineQueue';
 import Step1Identity from '@/pages/wizard/Step1Identity';
 import Step2Location from '@/pages/wizard/Step2Location';
@@ -10,11 +10,13 @@ import Step4Review from '@/pages/wizard/Step4Review';
 import Step5Success from '@/pages/wizard/Step5Success';
 import useOfflineQueue from '@/pages/wizard/useOfflineQueue';
 import { useI18n } from '@/lib/i18n';
+import { getLocationLabel } from '@/lib/locations';
 
-function buildPayload({ name, zone, gps, text, urgent, photo, audio }) {
+function buildPayload({ name, zone, gps, text, urgent, photo, audio, lang }) {
   return {
     reporter_name: name.trim(),
-    location_label: zone || (gps ? 'GPS' : null),
+    device_id: getOrCreateSevadarDeviceId(),
+    location_label: zone ? getLocationLabel(zone, lang) : (gps ? 'GPS' : null),
     gps_lat: gps?.lat,
     gps_lng: gps?.lng,
     text: text || null,
@@ -36,7 +38,7 @@ function playChime() {
 
 export default function SevadarWizard() {
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
 
   const [step, setStep] = useState(1);
   const [name, setName] = useState(getSevadarName());
@@ -56,13 +58,23 @@ export default function SevadarWizard() {
 
   const next = () => setStep((s) => Math.min(5, s + 1));
   const back = () => setStep((s) => Math.max(1, s - 1));
+  const resetWizard = () => {
+    setZone('');
+    setGps(null);
+    setGpsLoading(false);
+    setUrgent(false);
+    setText('');
+    setPhoto(null);
+    setAudio(null);
+    setSending(false);
+  };
   const resetMedia = () => { setPhoto(null); setAudio(null); setText(''); setUrgent(false); };
 
   const submit = async () => {
     if (!name.trim()) { setStep(1); toast.error(t('please_write_name')); return; }
     setSending(true);
     setSevadarName(name.trim());
-    const payload = buildPayload({ name, zone, gps, text, urgent, photo, audio });
+    const payload = buildPayload({ name, zone, gps, text, urgent, photo, audio, lang });
     try {
       if (!navigator.onLine) throw new Error('offline');
       await api.post('/incidents', payload);
@@ -82,7 +94,7 @@ export default function SevadarWizard() {
   };
 
   if (step === 5) {
-    return <Step5Success queued={queued} onNew={() => setStep(1)} onMyReports={() => navigate('/my-reports')} />;
+    return <Step5Success queued={queued} onNew={() => { resetWizard(); setStep(1); }} onMyReports={() => navigate('/my-reports')} />;
   }
   if (step === 1) {
     return <Step1Identity name={name} setName={setName} onNext={next} onAdmin={() => navigate('/admin/login')} />;

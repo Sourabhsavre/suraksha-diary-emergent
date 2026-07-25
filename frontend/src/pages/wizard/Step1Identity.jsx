@@ -10,7 +10,7 @@ export default function Step1Identity({ name, setName, onNext, onAdmin }) {
   const remembered = getSevadarName();
   return (
     <StepShell
-      n={1} total={4} title={t('who_are_you')}
+      n={1} total={5} title={t('who_are_you')}
       bottom={
         <Button
           data-testid="step1-next"

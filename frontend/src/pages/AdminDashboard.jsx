@@ -32,6 +32,7 @@ export default function AdminDashboard() {
   const [staffOpen, setStaffOpen] = useState(false);
   const lastIdsRef = useRef(new Set());
   const alertRef = useRef(null);
+  const silentAudio = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQBvT18=';
 
   const STATUS = useMemo(() => ({
     new: { label: t('st_new'), color: 'bg-yellow-100 text-yellow-800 border-yellow-500', icon: Clock },
@@ -124,7 +125,7 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-[100dvh] font-dash bg-[#FDFBF7] relative z-10">
-      <audio ref={alertRef} src="https://cdn.jsdelivr.net/gh/anars/blank-audio@master/1-second-of-silence.mp3" preload="auto" />
+      <audio ref={alertRef} src={silentAudio} preload="auto" />
       <header className="bg-[#0F172A] text-white px-6 py-4 flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <Shield className="w-7 h-7 text-[#D97706]" strokeWidth={2.5} />
@@ -135,7 +136,9 @@ export default function AdminDashboard() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <LanguageToggle variant="dark" />
-          <Button data-testid="staff-open-btn" onClick={() => setStaffOpen(true)} variant="outline" className="border-slate-500 text-white bg-transparent hover:bg-white/10"><Users className="w-4 h-4 mr-1" /> {t('manage_staff')}</Button>
+          {admin?.role === 'admin' && (
+            <Button data-testid="staff-open-btn" onClick={() => setStaffOpen(true)} variant="outline" className="border-slate-500 text-white bg-transparent hover:bg-white/10"><Users className="w-4 h-4 mr-1" /> {t('manage_staff')}</Button>
+          )}
           <Button data-testid="enable-push-btn" onClick={enablePush} variant="outline" className="border-slate-500 text-white bg-transparent hover:bg-white/10">{pushOn ? <BellRing className="w-4 h-4 mr-1" /> : <Bell className="w-4 h-4 mr-1" />} {pushOn ? t('notify_on') : t('notify')}</Button>
           <Button data-testid="export-csv-btn" onClick={() => download('csv')} variant="outline" className="border-slate-500 text-white bg-transparent hover:bg-white/10"><FileDown className="w-4 h-4 mr-1" /> CSV</Button>
           <Button data-testid="export-pdf-btn" onClick={() => download('pdf')} variant="outline" className="border-slate-500 text-white bg-transparent hover:bg-white/10"><FileDown className="w-4 h-4 mr-1" /> PDF</Button>

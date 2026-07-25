@@ -20,10 +20,15 @@ export default function AdminLogin() {
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const googleAuthBase = process.env.REACT_APP_GOOGLE_AUTH_URL || 'https://auth.emergentagent.com/';
 
   const googleLogin = () => {
+    if (!googleAuthBase) {
+      toast.error(t('google_login_unavailable'));
+      return;
+    }
     const redirect = `${window.location.origin}/admin/profile`;
-    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirect)}`;
+    window.location.href = `${googleAuthBase}?redirect=${encodeURIComponent(redirect)}`;
   };
 
   const emailLogin = async (e) => {
@@ -230,6 +235,7 @@ export default function AdminLogin() {
               <Button
                 data-testid="google-login-btn"
                 onClick={googleLogin}
+                type="button"
                 className="w-full h-14 text-lg font-bold rounded-2xl bg-[#0F172A] text-white btn-tactile flex items-center justify-center gap-2"
               >
                 <LogIn className="w-5 h-5" /> {t('sign_in_google')}

@@ -71,6 +71,11 @@ app = FastAPI(
     openapi_url=None,       # Disable public OpenAPI schema
 )
 
+AUTH_SESSION_DATA_URL = os.environ.get(
+    'AUTH_SESSION_DATA_URL',
+    'https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data',
+)
+
 # --- Rate limiter (per-IP) ---
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
@@ -311,10 +316,7 @@ async def create_session(request: Request, payload: dict):
     if not session_id:
         raise HTTPException(status_code=400, detail="Missing session_id")
     async with httpx.AsyncClient(timeout=10.0) as c:
-        r = await c.get(
-            "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-            headers={"X-Session-ID": session_id},
-        )
+        r = await c.get(AUTH_SESSION_DATA_URL, headers={"X-Session-ID": session_id})
         if r.status_code != 200:
             raise HTTPException(status_code=401, detail="Failed to validate session")
         data = r.json()
@@ -346,6 +348,9 @@ async def whoami(admin: dict = Depends(get_current_admin)):
 # --- Staff management (admin-only) ---
 @api_router.get("/auth/staff")
 async def list_staff(admin: dict = Depends(get_current_admin)):
+    admin_user = await db.admin_users.find_one({"email": admin["email"]})
+    if not admin_user or admin_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can view staff")
     users = await db.admin_users.find({}, {"_id": 0, "password_hash": 0}).sort("created_at", -1).to_list(200)
     return users
 
@@ -368,6 +373,9 @@ async def update_staff_role(email: str, payload: RoleUpdate, admin: dict = Depen
 
 @api_router.post("/auth/staff")
 async def add_staff(payload: StaffInvite, admin: dict = Depends(get_current_admin)):
+    admin_user = await db.admin_users.find_one({"email": admin["email"]})
+    if not admin_user or admin_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can manage staff")
     email = payload.email.lower()
     existing = await db.admin_users.find_one({"email": email})
     if existing:
@@ -393,6 +401,9 @@ async def add_staff(payload: StaffInvite, admin: dict = Depends(get_current_admi
 
 @api_router.delete("/auth/staff/{email}")
 async def remove_staff(email: str, admin: dict = Depends(get_current_admin)):
+    admin_user = await db.admin_users.find_one({"email": admin["email"]})
+    if not admin_user or admin_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can manage staff")
     email = email.lower()
     if email == admin["email"]:
         raise HTTPException(status_code=400, detail="You cannot remove yourself")
@@ -695,7 +706,7 @@ app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
