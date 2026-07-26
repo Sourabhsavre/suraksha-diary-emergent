@@ -158,6 +158,12 @@ class PushSub(BaseModel):
     admin_email: Optional[str] = None
 
 
+class SmsNotificationRequest(BaseModel):
+    phone_number: constr(strip_whitespace=True, min_length=4, max_length=32)
+    message: constr(strip_whitespace=True, min_length=1, max_length=1600)
+    title: Optional[constr(max_length=120)] = None
+
+
 class LoginRequest(BaseModel):
     email: constr(strip_whitespace=True, min_length=3, max_length=200)
     password: constr(min_length=1, max_length=200)
@@ -428,6 +434,57 @@ async def logout(admin: dict = Depends(get_current_admin)):
     return {"ok": True}
 
 # ============ Push Notifications ============
+
+
+def build_sms_body(title: Optional[str], message: str) -> str:
+    cleaned_message = message.strip()
+    if not cleaned_message:
+        return ""
+    if title and title.strip():
+        return f"{title.strip()}\n{cleaned_message}"
+    return cleaned_message
+
+
+def _get_sms_config() -> tuple[Optional[str], Optional[str], Optional[str]]:
+    account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
+    from_number = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
+    return (account_sid or None, auth_token or None, from_number or None)
+
+
+async def send_sms_via_twilio(phone_number: str, body: str):
+    account_sid, auth_token, from_number = _get_sms_config()
+    if not account_sid or not auth_token or not from_number:
+        raise RuntimeError("SMS provider is not configured")
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(
+            f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json",
+            data={"To": phone_number, "From": from_number, "Body": body},
+            auth=(account_sid, auth_token),
+        )
+        response.raise_for_status()
+
+
+@api_router.post("/notifications/sms")
+async def send_sms_notification(payload: SmsNotificationRequest, admin: dict = Depends(get_current_admin)):
+    body = build_sms_body(payload.title, payload.message)
+    if not body:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    try:
+        await send_sms_via_twilio(payload.phone_number, body)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        detail = exc.response.text[:200] if exc.response else str(exc)
+        raise HTTPException(status_code=502, detail=f"SMS provider rejected the request: {detail}") from exc
+    except Exception as exc:
+        logging.exception("SMS sending failed")
+        raise HTTPException(status_code=502, detail="Failed to send SMS notification") from exc
+
+    return {"ok": True, "phone_number": payload.phone_number, "message_length": len(body)}
+
 
 @api_router.get("/push/vapid-key")
 async def get_vapid_key():

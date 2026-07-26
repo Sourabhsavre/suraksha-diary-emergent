@@ -30,6 +30,9 @@ export default function AdminDashboard() {
   const [selected, setSelected] = useState(null);
   const [pushOn, setPushOn] = useState(false);
   const [staffOpen, setStaffOpen] = useState(false);
+  const [smsTo, setSmsTo] = useState('');
+  const [smsMessage, setSmsMessage] = useState('');
+  const [smsSending, setSmsSending] = useState(false);
   const lastIdsRef = useRef(new Set());
   const alertRef = useRef(null);
   const silentAudio = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQBvT18=';
@@ -115,6 +118,25 @@ export default function AdminDashboard() {
     const a = document.createElement('a'); a.href = url; a.download = `suraksha-diary.${kind === 'pdf' ? 'pdf' : 'csv'}`; a.click(); URL.revokeObjectURL(url);
   };
 
+  const sendCustomSms = async () => {
+    if (!smsTo.trim() || !smsMessage.trim()) {
+      toast.error(t('sms_missing_fields'));
+      return;
+    }
+    setSmsSending(true);
+    try {
+      await api.post('/notifications/sms', { phone_number: smsTo.trim(), message: smsMessage.trim(), title: t('custom_sms_title') });
+      toast.success(t('sms_sent'));
+      setSmsTo('');
+      setSmsMessage('');
+    } catch (err) {
+      console.error('SMS send failed:', err);
+      toast.error(err.response?.data?.detail || t('sms_failed'));
+    } finally {
+      setSmsSending(false);
+    }
+  };
+
   const stats = useMemo(() => ({
     total: items.length,
     urgent: items.filter((x) => x.is_urgent).length,
@@ -182,6 +204,16 @@ export default function AdminDashboard() {
             <Input data-testid="search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('search_placeholder')} className="h-11 pl-9 border-2" />
           </div>
           <Button data-testid="refresh-btn" onClick={refresh} variant="outline" className="h-11"><RefreshCw className="w-4 h-4 mr-1" /> {t('refresh')}</Button>
+        </div>
+
+        <div className="bg-white border-2 border-[#0F172A]/20 rounded-2xl p-4 mb-4">
+          <div className="flex flex-col md:flex-row gap-3">
+            <Input value={smsTo} onChange={(e) => setSmsTo(e.target.value)} placeholder={t('sms_phone_placeholder')} className="h-11 border-2 md:w-64" />
+            <Textarea value={smsMessage} onChange={(e) => setSmsMessage(e.target.value)} placeholder={t('sms_message_placeholder')} className="min-h-24 flex-1 border-2" />
+            <Button onClick={sendCustomSms} disabled={smsSending} className="h-12 px-4 bg-[#D97706] text-white font-bold rounded-2xl">
+              {smsSending ? t('sending') : t('send_sms')}
+            </Button>
+          </div>
         </div>
 
         <div className="grid gap-3">
