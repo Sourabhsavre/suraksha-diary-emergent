@@ -1,10 +1,41 @@
-import { CheckCircle2, WifiOff } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle2, WifiOff, Bell, BellRing } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import StepShell from './StepShell';
 import { useI18n } from '@/lib/i18n';
+import { api } from '@/lib/api';
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const b64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = window.atob(b64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
 
 export default function Step5Success({ queued, onNew, onMyReports }) {
   const { t } = useI18n();
+  const [pushOn, setPushOn] = useState(false);
+
+  const enablePush = async () => {
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) { toast.error(t('push_not_supported')); return; }
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { toast.error(t('notifications_denied')); return; }
+      const reg = await navigator.serviceWorker.ready;
+      const { data: keyResp } = await api.get('/push/vapid-key');
+      const applicationServerKey = urlBase64ToUint8Array(keyResp.public_key);
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
+      const sj = sub.toJSON();
+      await api.post('/push/subscribe', { endpoint: sj.endpoint, keys: sj.keys });
+      setPushOn(true);
+      toast.success(t('notifications_on'));
+    } catch (err) {
+      console.error('Push setup failed:', err);
+      toast.error(t('push_not_supported'));
+    }
+  };
+
   return (
     <StepShell
       n={5} total={5} title={t('sent_title')}
@@ -26,6 +57,21 @@ export default function Step5Success({ queued, onNew, onMyReports }) {
         {queued > 0 && (
           <div className="mt-6 flex items-center gap-2 text-amber-800 bg-amber-100 border-2 border-amber-400 px-4 py-2 rounded-xl">
             <WifiOff className="w-5 h-5" /> {queued} {t('queued_count')}
+          </div>
+        )}
+        {!pushOn && (
+          <Button
+            data-testid="sevadar-enable-push-btn"
+            onClick={enablePush}
+            variant="outline"
+            className="mt-6 h-14 px-6 text-lg font-semibold rounded-2xl border-2 border-[#0F172A] text-[#0F172A]"
+          >
+            <Bell className="w-5 h-5 mr-2" /> {t('notify')}
+          </Button>
+        )}
+        {pushOn && (
+          <div className="mt-6 flex items-center gap-2 text-emerald-700 bg-emerald-100 border-2 border-emerald-400 px-4 py-2 rounded-xl">
+            <BellRing className="w-5 h-5" /> {t('notify_on')}
           </div>
         )}
       </div>
